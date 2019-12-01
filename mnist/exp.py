@@ -18,28 +18,26 @@ class Net(nn.Module):
     def forward(self, x):
         x = torch.flatten(x, 1)
         x = self.fc1(x)
+        x = F.sigmoid(x)
         x = self.fc2(x)
         output = F.log_softmax(x, dim=1)
         return output
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, train_loader):
     model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data = downsample(data)
-            data, target = data.to(device), target.to(device)
-            output = model(data.float())
-            test_loss += F.nll_loss(output, target, reduction='sum').item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
 
-    test_loss /= len(test_loader.dataset)
+    def get_accuracy(loader):
+        correct = 0
+        with torch.no_grad():
+            for data, target in loader:
+                data = downsample(data)
+                data, target = data.to(device), target.to(device)
+                output = model(data.float())
+                pred = output.argmax(dim=1, keepdim=True)
+                correct += pred.eq(target.view_as(pred)).sum().item()
+        return correct / len(loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
-        100. * correct / len(test_loader.dataset)))
+
     nparams = sum(p.numel() for p in model.parameters())
     print("Num params: ", nparams)
     norm = 0
@@ -48,7 +46,7 @@ def test(model, device, test_loader):
     norm = torch.sqrt(norm)
     norm = norm.cpu().float()
     print("Norm: ", norm)
-    return nparams, np.asscalar(norm.detach().numpy()), correct / len(test_loader.dataset)
+    return nparams, np.asscalar(norm.detach().numpy()), get_accuracy(test_loader), get_accuracy(train_loader)
 
 
 
@@ -75,12 +73,12 @@ test_loader = torch.utils.data.DataLoader(
 
 device = torch.device("cuda")
 
-lams = [0.0, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0, 2.0, 10.0, 100.0]
+lams = [0.0, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0, 1.25, 1.5, 2.0, 5.0, 7.0, 10.0, 50.0, 100.0]
 for lam in lams:
     model = Net().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=lam)
+    optimizer = optim.Adam(model.parameters(), lr=1e-2, weight_decay=lam)
     model.train()
-    for epoch in range(5):
+    for epoch in range(7):
         print("Epoch %d, lambda = %f" % (epoch, lam))
         for batch_idx, (data, target) in enumerate(train_loader):
             data = downsample(data)
@@ -90,6 +88,6 @@ for lam in lams:
             loss = F.nll_loss(output, target)
             loss.backward()
             optimizer.step()
-        nparams, l2, acc = test(model, device, test_loader)
-        with open("exp-n%d-mnist.csv" % int(nparams), 'a') as f:
-            f.write('%f, %f, %f\n' % (l2, acc, lam))
+    nparams, l2, test_acc, train_acc = test(model, device, test_loader, train_loader)
+    with open("exp-n%d-mnist.csv" % int(nparams), 'a') as f:
+        f.write('%f, %f, %f, %f\n' % (l2, test_acc, train_acc, lam))
