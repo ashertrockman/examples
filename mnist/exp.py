@@ -25,7 +25,7 @@ class Net(nn.Module):
 def downsample(data):
     return torch.from_numpy(np.array([skimage.transform.resize(data[i][0], (16, 16))[None, :] for i in range(len(data))]))
 
-batch_size = 8
+batch_size = 64
 test_batch_size = 1000
 
 train_loader = torch.utils.data.DataLoader(
@@ -43,14 +43,17 @@ test_loader = torch.utils.data.DataLoader(
     batch_size=test_batch_size, shuffle=True)
 
 
-model = Net()
+device = torch.device("cuda")
+
+model = Net().to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-4)
 model.train()
 for batch_idx, (data, target) in enumerate(train_loader):
+    data, target = data.to(device), target.to(device)
     data = downsample(data)
     output = model(data)
     loss = F.nll_loss(output, target)
     loss.backward()
     optimizer.step()
-    print(loss)
+    print(batch_idx, loss)
 
